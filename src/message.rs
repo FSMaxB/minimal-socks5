@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::net::{Ipv4Addr, Ipv6Addr};
 
+/// > The VER field is set to X'05' for this version of the protocol.
 pub const VERSION: u8 = 0x05;
 
 /// > The client connects to the server, and sends a version
@@ -22,8 +24,8 @@ pub struct MethodSelectionRequest {
 impl TryFrom<&[u8]> for MethodSelectionRequest {
 	type Error = ParseError;
 
-	fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-		match value {
+	fn try_from(packet: &[u8]) -> Result<Self, Self::Error> {
+		match packet {
 			&[VERSION, method_count, ref rest @ ..] => {
 				if rest.len() != usize::from(method_count) {
 					return Err(ParseError::InvalidMessage("Incorrect number of methods"));
@@ -51,6 +53,8 @@ impl From<MethodSelectionResponse> for [u8; 2] {
 #[derive(Debug)]
 pub enum ParseError {
 	InvalidMessage(&'static str),
+	InvalidCommand(u8),
+	InvalidRequest(&'static str),
 }
 
 impl Display for ParseError {
@@ -58,6 +62,8 @@ impl Display for ParseError {
 		use ParseError::*;
 		match self {
 			InvalidMessage(error) => write!(formatter, "Invalid message: {error}"),
+			InvalidCommand(number) => write!(formatter, "{number:x} is not a valid command type"),
+			InvalidRequest(error) => write!(formatter, "Invalid request: {error}"),
 		}
 	}
 }
@@ -120,4 +126,121 @@ impl From<Method> for u8 {
 			NoAcceptableMethods => 0xff,
 		}
 	}
+}
+
+///   The SOCKS request is formed as follows:
+/// >
+/// > +----+-----+-------+------+----------+----------+
+/// > |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+/// > +----+-----+-------+------+----------+----------+
+/// > | 1  |  1  | X'00' |  1   | Variable |    2     |
+/// > +----+-----+-------+------+----------+----------+
+/// >
+/// > Where:
+/// >  * VER	protocol version: X'05'
+/// >  * CMD
+/// >    * CONNECT X'01'
+/// >    * BIND X'02'
+/// >    * UDP ASSOCIATE X'03'
+/// >  * RSV	RESERVED
+/// >  * ATYP	address type of following address
+/// >    * IP V4 address: X'01'
+/// >    * DOMAINNAME: X'03'
+/// >    * IP V6 address: X'04'
+/// >  * DST.ADDR	desired destination address
+/// >  * DST.PORT	desired destination port in network octet order
+pub struct SocksRequest {
+	pub command: Command,
+	pub address: Address,
+	pub port: u16,
+}
+
+impl TryFrom<&[u8]> for SocksRequest {
+	type Error = ParseError;
+
+	fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+		const RESERVED: u8 = 0x00;
+
+		let (command, remainder, port) = match value {
+			&[VERSION, command, RESERVED, ref remainder @ .., port_high, port_low] => {
+				let port = u16::from_be_bytes([port_high, port_low]);
+				(Command::try_from(command)?, remainder, port)
+			}
+			_ => return Err(ParseError::InvalidRequest("")),
+		};
+
+		const IPV4_TYPE: u8 = 0x01;
+		const DOMAIN_NAME_TYPE: u8 = 0x03;
+		const IPV6_TYPE: u8 = 0x04;
+		let address = match remainder {
+			// In an address field (DST.ADDR, BND.ADDR), the ATYP field specifies
+			// the type of address contained within the field:
+			//   * X'01'
+			// the address is a version-4 IP address, with a length of 4 octets
+			&[IPV4_TYPE, ref address @ ..] => {
+				let bytes = <[u8; 4]>::try_from(address)
+					.map_err(|_| ParseError::InvalidRequest("Invalid IPv4 address length"))?;
+				Address::Ipv4(Ipv4Addr::from(bytes))
+			}
+			// >   *  X'03'
+			// > the address field contains a fully-qualified domain name.  The first
+			// > octet of the address field contains the number of octets of name that
+			// > follow, there is no terminating NUL octet.
+			&[DOMAIN_NAME_TYPE, name_length, ref name @ ..] => {
+				if name.len() != usize::from(name_length) {
+					return Err(ParseError::InvalidRequest("Invalid domain name length"));
+				}
+
+				Address::DomainName(name.into())
+			}
+			// >   *  X'04'
+			// > the address is a version-6 IP address, with a length of 16 octets.
+			&[IPV6_TYPE, ref address @ ..] => {
+				let bytes = <[u8; 16]>::try_from(address)
+					.map_err(|_| ParseError::InvalidRequest("Invalid IPv6 address length"))?;
+				Address::Ipv6(Ipv6Addr::from(bytes))
+			}
+			_ => return Err(ParseError::InvalidRequest("Invalid address")),
+		};
+
+		Ok(Self { command, address, port })
+	}
+}
+
+/// > * CMD
+/// >   * CONNECT X'01'
+/// >   * BIND X'02'
+/// >   * UDP ASSOCIATE X'03'
+#[repr(u8)]
+pub enum Command {
+	Connect = 0x01,
+	Bind = 0x02,
+	UdpAssociate = 0x03,
+}
+
+impl TryFrom<u8> for Command {
+	type Error = ParseError;
+
+	fn try_from(command: u8) -> Result<Self, Self::Error> {
+		match command {
+			// CONNECT X'01'
+			0x01 => Ok(Self::Connect),
+			// BIND X'02'
+			0x02 => Ok(Self::Bind),
+			// UDP ASSOCIATE X'03'
+			0x03 => Ok(Self::UdpAssociate),
+			invalid => Err(ParseError::InvalidCommand(invalid)),
+		}
+	}
+}
+
+/// > * ATYP	address type of following address
+/// >   * IP V4 address: X'01'
+/// >   * DOMAINNAME: X'03'
+/// >   * IP V6 address: X'04'
+/// > * DST.ADDR	desired destination address
+pub enum Address {
+	Ipv4(Ipv4Addr),
+	DomainName(Vec<u8>),
+	Ipv6(Ipv6Addr),
 }
