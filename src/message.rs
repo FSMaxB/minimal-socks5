@@ -218,6 +218,108 @@ pub enum Command {
 	UdpAssociate = 0x03,
 }
 
+/// > The SOCKS request information is sent by the client as soon as it has
+/// > established a connection to the SOCKS server, and completed the
+/// > authentication negotiations.  The server evaluates the request, and
+/// > returns a reply formed as follows:
+///
+/// >  +----+-----+-------+------+----------+----------+
+/// >  |VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
+/// >  +----+-----+-------+------+----------+----------+
+/// >  | 1  |  1  | X'00' |  1   | Variable |    2     |
+/// >  +----+-----+-------+------+----------+----------+
+///
+/// > Where:
+/// > * VER	protocol version: X'05'
+/// > * REP	Reply field:
+/// >   * X'00' succeeded
+/// >   * X'01' general SOCKS server failure
+/// >   * X'02' connection not allowed by ruleset
+/// >   * X'03' Network unreachable
+/// >   * X'04' Host unreachable
+/// >   * X'05' Connection refused
+/// >   * X'06' TTL expired
+/// >   * X'07' Command not supported
+/// >   * X'08' Address type not supported
+/// >   * X'09' to X'FF' unassigned
+/// > * RSV	RESERVED
+/// > * ATYP	address type of following address
+pub struct SocksResponse {
+	pub reply: SocksReply,
+	pub address: Address,
+	pub port: u16,
+}
+
+impl From<SocksResponse> for Vec<u8> {
+	fn from(SocksResponse { reply, address, port }: SocksResponse) -> Self {
+		const RESERVED: u8 = 0x00;
+
+		let mut bytes = vec![VERSION, reply.into(), RESERVED];
+		use Address::*;
+		match address {
+			Ipv4(address) => bytes.extend_from_slice(&address.octets()),
+			DomainName(name) => bytes.extend_from_slice(&name),
+			Ipv6(address) => bytes.extend_from_slice(&address.octets()),
+		}
+		bytes.extend_from_slice(&port.to_be_bytes());
+
+		bytes
+	}
+}
+
+/// > * REP	Reply field:
+/// >   * X'00' succeeded
+/// >   * X'01' general SOCKS server failure
+/// >   * X'02' connection not allowed by ruleset
+/// >   * X'03' Network unreachable
+/// >   * X'04' Host unreachable
+/// >   * X'05' Connection refused
+/// >   * X'06' TTL expired
+/// >   * X'07' Command not supported
+/// >   * X'08' Address type not supported
+/// >   * X'09' to X'FF' unassigned
+pub enum SocksReply {
+	Succeeded,
+	GeneralSocksServerFailure,
+	ConnectionNotAllowedByRuleset,
+	NetworkUnreachable,
+	HostUnreachable,
+	ConnectionRefused,
+	TtlExpired,
+	CommandNotSupported,
+	AddressTypeNotSupported,
+	Unassigned(u8),
+}
+
+impl From<SocksReply> for u8 {
+	fn from(reply: SocksReply) -> Self {
+		use SocksReply::*;
+		match reply {
+			// X'00' succeeded
+			Succeeded => 0x00,
+			// X'01' general SOCKS server failure
+			GeneralSocksServerFailure => 0x01,
+			// X'02' connection not allowed by ruleset
+			ConnectionNotAllowedByRuleset => 0x02,
+			// X'03' Network unreachable
+			NetworkUnreachable => 0x03,
+			// X'04' Host unreachable
+			HostUnreachable => 0x04,
+			// X'05' Connection refused
+			ConnectionRefused => 0x05,
+			// X'06' TTL expired
+			TtlExpired => 0x06,
+			// X'07' Command not supported
+			CommandNotSupported => 0x07,
+			// X'08' Address type not supported
+			AddressTypeNotSupported => 0x08,
+			// X'09' to X'FF' unassigned
+			Unassigned(reply @ 0x09..=0xff) => reply,
+			Unassigned(_) => unreachable!(),
+		}
+	}
+}
+
 impl TryFrom<u8> for Command {
 	type Error = ParseError;
 
