@@ -17,6 +17,7 @@ pub const VERSION: u8 = 0x05;
 /// > The VER field is set to X'05' for this version of the protocol.  The
 /// > NMETHODS field contains the number of method identifier octets that
 /// > appear in the METHODS field.
+#[derive(Debug)]
 pub struct MethodSelectionRequest {
 	pub methods: Vec<Method>,
 }
@@ -78,6 +79,7 @@ impl Error for ParseError {}
 /// > * X'03' to X'7F' IANA ASSIGNED
 /// > * X'80' to X'FE' RESERVED FOR PRIVATE METHODS
 /// > * X'FF' NO ACCEPTABLE METHODS
+#[derive(Debug, PartialEq, Eq)]
 pub enum Method {
 	NoAuthenticationRequired,
 	GSSAPI,
@@ -149,6 +151,7 @@ impl From<Method> for u8 {
 /// >    * IP V6 address: X'04'
 /// >  * DST.ADDR	desired destination address
 /// >  * DST.PORT	desired destination port in network octet order
+#[derive(Debug)]
 pub struct SocksRequest {
 	pub command: Command,
 	pub address: Address,
@@ -211,6 +214,7 @@ impl TryFrom<&[u8]> for SocksRequest {
 /// >   * CONNECT X'01'
 /// >   * BIND X'02'
 /// >   * UDP ASSOCIATE X'03'
+#[derive(Debug)]
 #[repr(u8)]
 pub enum Command {
 	Connect = 0x01,
@@ -341,6 +345,7 @@ impl TryFrom<u8> for Command {
 /// >   * DOMAINNAME: X'03'
 /// >   * IP V6 address: X'04'
 /// > * DST.ADDR	desired destination address
+#[derive(Debug)]
 pub enum Address {
 	Ipv4(Ipv4Addr),
 	DomainName(Vec<u8>),
