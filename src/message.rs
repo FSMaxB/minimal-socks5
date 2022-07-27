@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 /// > The VER field is set to X'05' for this version of the protocol.
 pub const VERSION: u8 = 0x05;
@@ -359,6 +359,15 @@ impl From<&Address> for u8 {
 			Ipv4(_) => 0x01,
 			DomainName(_) => 0x03,
 			Ipv6(_) => 0x04,
+		}
+	}
+}
+
+impl From<IpAddr> for Address {
+	fn from(address: IpAddr) -> Self {
+		match address {
+			IpAddr::V4(ipv4) => Self::Ipv4(ipv4),
+			IpAddr::V6(ipv6) => Self::Ipv6(ipv6),
 		}
 	}
 }
