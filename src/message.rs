@@ -29,7 +29,7 @@ impl MethodSelectionRequest {
 		Stream: AsyncRead + Unpin,
 	{
 		if stream.read_u8().await? != VERSION {
-			return Err(ParseError::InvalidMessage("Incorrect version byte"));
+			return Err(ParseError::InvalidVersion);
 		}
 
 		let method_count = usize::from(stream.read_u8().await?);
@@ -53,9 +53,10 @@ impl From<MethodSelectionResponse> for [u8; 2] {
 
 #[derive(Debug)]
 pub enum ParseError {
-	InvalidMessage(&'static str),
+	InvalidVersion,
+	MissingReserved,
 	InvalidCommand(u8),
-	InvalidRequest(&'static str),
+	InvalidAddressType(u8),
 	Io(tokio::io::Error),
 }
 
@@ -69,9 +70,10 @@ impl Display for ParseError {
 	fn fmt(&self, formatter: &mut Formatter) -> std::fmt::Result {
 		use ParseError::*;
 		match self {
-			InvalidMessage(error) => write!(formatter, "Invalid message: {error}"),
+			InvalidVersion => write!(formatter, "Invalid protocol version"),
+			MissingReserved => write!(formatter, "Missing reserved byte"),
 			InvalidCommand(number) => write!(formatter, "{number:x} is not a valid command type"),
-			InvalidRequest(error) => write!(formatter, "Invalid request: {error}"),
+			InvalidAddressType(number) => write!(formatter, "Invalid address type: {number:x}"),
 			Io(error) => write!(formatter, "Io Error: {error}"),
 		}
 	}
@@ -166,53 +168,25 @@ pub struct SocksRequest {
 	pub port: u16,
 }
 
-impl TryFrom<&[u8]> for SocksRequest {
-	type Error = ParseError;
+impl SocksRequest {
+	pub async fn parse_from_stream<Stream>(stream: &mut Stream) -> Result<Self, ParseError>
+	where
+		Stream: AsyncRead + Unpin,
+	{
+		if stream.read_u8().await? != VERSION {
+			return Err(ParseError::InvalidVersion);
+		}
 
-	fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+		let command = Command::try_from(stream.read_u8().await?)?;
+
 		const RESERVED: u8 = 0x00;
+		if stream.read_u8().await? != RESERVED {
+			return Err(ParseError::MissingReserved);
+		}
 
-		let (command, remainder, port) = match value {
-			&[VERSION, command, RESERVED, ref remainder @ .., port_high, port_low] => {
-				let port = u16::from_be_bytes([port_high, port_low]);
-				(Command::try_from(command)?, remainder, port)
-			}
-			_ => return Err(ParseError::InvalidRequest("")),
-		};
+		let address = Address::parse_from_stream(stream).await?;
 
-		const IPV4_TYPE: u8 = 0x01;
-		const DOMAIN_NAME_TYPE: u8 = 0x03;
-		const IPV6_TYPE: u8 = 0x04;
-		let address = match remainder {
-			// In an address field (DST.ADDR, BND.ADDR), the ATYP field specifies
-			// the type of address contained within the field:
-			//   * X'01'
-			// the address is a version-4 IP address, with a length of 4 octets
-			&[IPV4_TYPE, ref address @ ..] => {
-				let bytes = <[u8; 4]>::try_from(address)
-					.map_err(|_| ParseError::InvalidRequest("Invalid IPv4 address length"))?;
-				Address::Ipv4(Ipv4Addr::from(bytes))
-			}
-			// >   *  X'03'
-			// > the address field contains a fully-qualified domain name.  The first
-			// > octet of the address field contains the number of octets of name that
-			// > follow, there is no terminating NUL octet.
-			&[DOMAIN_NAME_TYPE, name_length, ref name @ ..] => {
-				if name.len() != usize::from(name_length) {
-					return Err(ParseError::InvalidRequest("Invalid domain name length"));
-				}
-
-				Address::DomainName(name.into())
-			}
-			// >   *  X'04'
-			// > the address is a version-6 IP address, with a length of 16 octets.
-			&[IPV6_TYPE, ref address @ ..] => {
-				let bytes = <[u8; 16]>::try_from(address)
-					.map_err(|_| ParseError::InvalidRequest("Invalid IPv6 address length"))?;
-				Address::Ipv6(Ipv6Addr::from(bytes))
-			}
-			_ => return Err(ParseError::InvalidRequest("Invalid address")),
-		};
+		let port = stream.read_u16().await?;
 
 		Ok(Self { command, address, port })
 	}
@@ -361,6 +335,36 @@ pub enum Address {
 }
 
 impl Address {
+	async fn parse_from_stream<Stream>(stream: &mut Stream) -> Result<Self, ParseError>
+	where
+		Stream: AsyncRead + Unpin,
+	{
+		let address_type = stream.read_u8().await?;
+		use Address::*;
+		match address_type {
+			// IP V4 address: X'01'
+			0x01 => {
+				let mut buffer = [0u8; 4];
+				stream.read_exact(&mut buffer).await?;
+				Ok(Ipv4(Ipv4Addr::from(buffer)))
+			}
+			// DOMAINNAME: X'03'
+			0x03 => {
+				let length = usize::from(stream.read_u8().await?);
+				let mut buffer = vec![0u8; length];
+				stream.read_exact(&mut buffer).await?;
+				Ok(DomainName(buffer))
+			}
+			// IP V6 address: X'04'
+			0x04 => {
+				let mut buffer = [0u8; 16];
+				stream.read_exact(&mut buffer).await?;
+				Ok(Ipv6(Ipv6Addr::from(buffer)))
+			}
+			invalid => Err(ParseError::InvalidAddressType(invalid)),
+		}
+	}
+
 	fn r#type(&self) -> u8 {
 		use Address::*;
 		match self {
