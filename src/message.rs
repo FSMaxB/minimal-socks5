@@ -266,7 +266,7 @@ impl From<SocksResponse> for Vec<u8> {
 	fn from(SocksResponse { reply, address, port }: SocksResponse) -> Self {
 		const RESERVED: u8 = 0x00;
 
-		let mut bytes = vec![VERSION, reply.into(), RESERVED, (&address).into()];
+		let mut bytes = vec![VERSION, reply.into(), RESERVED, address.r#type()];
 		use Address::*;
 		match address {
 			Ipv4(address) => bytes.extend_from_slice(&address.octets()),
@@ -360,10 +360,10 @@ pub enum Address {
 	Ipv6(Ipv6Addr),
 }
 
-impl From<&Address> for u8 {
-	fn from(address: &Address) -> Self {
+impl Address {
+	fn r#type(&self) -> u8 {
 		use Address::*;
-		match address {
+		match self {
 			Ipv4(_) => 0x01,
 			DomainName(_) => 0x03,
 			Ipv6(_) => 0x04,
