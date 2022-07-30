@@ -240,20 +240,17 @@ pub struct SocksResponse {
 	pub port: u16,
 }
 
-impl From<SocksResponse> for Vec<u8> {
-	fn from(SocksResponse { reply, address, port }: SocksResponse) -> Self {
+impl SocksResponse {
+	pub async fn write_to_stream<Stream>(&self, stream: &mut Stream) -> tokio::io::Result<()>
+	where
+		Stream: AsyncWrite + Unpin,
+	{
+		let Self { reply, address, port } = self;
+
 		const RESERVED: u8 = 0x00;
-
-		let mut bytes = vec![VERSION, reply.into(), RESERVED, address.r#type()];
-		use Address::*;
-		match address {
-			Ipv4(address) => bytes.extend_from_slice(&address.octets()),
-			DomainName(name) => bytes.extend_from_slice(&name),
-			Ipv6(address) => bytes.extend_from_slice(&address.octets()),
-		}
-		bytes.extend_from_slice(&port.to_be_bytes());
-
-		bytes
+		stream.write_all(&[VERSION, (*reply).into(), RESERVED]).await?;
+		address.write_to_stream(stream).await?;
+		stream.write_u16(*port).await
 	}
 }
 
@@ -268,6 +265,7 @@ impl From<SocksResponse> for Vec<u8> {
 /// >   * X'07' Command not supported
 /// >   * X'08' Address type not supported
 /// >   * X'09' to X'FF' unassigned
+#[derive(Copy, Clone)]
 pub enum SocksReply {
 	Succeeded,
 	GeneralSocksServerFailure,
@@ -366,6 +364,24 @@ impl Address {
 				Ok(Ipv6(Ipv6Addr::from(buffer)))
 			}
 			invalid => Err(ParseError::InvalidAddressType(invalid)),
+		}
+	}
+
+	pub async fn write_to_stream<Stream>(&self, stream: &mut Stream) -> tokio::io::Result<()>
+	where
+		Stream: AsyncWrite + Unpin,
+	{
+		stream.write_u8(self.r#type()).await?;
+		use Address::*;
+		match self {
+			Ipv4(ipv4) => stream.write_all(&ipv4.octets()).await,
+			DomainName(domain) => {
+				let length = u8::try_from(domain.len())
+					.unwrap_or_else(|_| unreachable!("Domain name cannot be longer than 255 bytes"));
+				stream.write_u8(length).await?;
+				stream.write_all(&domain).await
+			}
+			Ipv6(ipv6) => stream.write_all(&ipv6.octets()).await,
 		}
 	}
 

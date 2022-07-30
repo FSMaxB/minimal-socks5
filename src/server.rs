@@ -4,7 +4,6 @@ use crate::message::{
 use anyhow::bail;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
-use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -40,13 +39,11 @@ async fn run_socks_protocol(mut client_stream: TcpStream) -> anyhow::Result<()> 
 
 	let server_stream = match perform_socks_request(socks_request).await {
 		Ok((proxy_stream, response)) => {
-			let response = Vec::from(response);
-			client_stream.write_all(&response).await?;
+			response.write_to_stream(&mut client_stream).await?;
 			proxy_stream
 		}
 		Err(response) => {
-			let response = Vec::from(response);
-			client_stream.write_all(&response).await?;
+			response.write_to_stream(&mut client_stream).await?;
 			bail!("Failed to perform socks request, closing connection.");
 		}
 	};
