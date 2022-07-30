@@ -25,8 +25,7 @@ pub async fn listen_for_tcp_connections(socket_address: SocketAddr) -> anyhow::R
 async fn run_socks_protocol(mut client_stream: TcpStream) -> anyhow::Result<()> {
 	let mut buffer = [0u8; 65535];
 
-	let packet = read_packet(&mut buffer, &mut client_stream).await?;
-	let method_selection_request = MethodSelectionRequest::try_from(packet)?;
+	let method_selection_request = MethodSelectionRequest::parse_from_stream(&mut client_stream).await?;
 	println!("{method_selection_request:?}");
 	match select_method(method_selection_request.methods) {
 		Ok(response) => {

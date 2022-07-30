@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 /// > The VER field is set to X'05' for this version of the protocol.
 pub const VERSION: u8 = 0x05;
@@ -22,22 +23,21 @@ pub struct MethodSelectionRequest {
 	pub methods: Vec<Method>,
 }
 
-impl TryFrom<&[u8]> for MethodSelectionRequest {
-	type Error = ParseError;
-
-	fn try_from(packet: &[u8]) -> Result<Self, Self::Error> {
-		match packet {
-			&[VERSION, method_count, ref rest @ ..] => {
-				if rest.len() != usize::from(method_count) {
-					return Err(ParseError::InvalidMessage("Incorrect number of methods"));
-				}
-
-				Ok(Self {
-					methods: rest.iter().copied().map(Method::from).collect(),
-				})
-			}
-			_ => Err(ParseError::InvalidMessage("Invalid method selection request")),
+impl MethodSelectionRequest {
+	pub async fn parse_from_stream<Stream>(stream: &mut Stream) -> Result<Self, ParseError>
+	where
+		Stream: AsyncRead + Unpin,
+	{
+		if stream.read_u8().await? != VERSION {
+			return Err(ParseError::InvalidMessage("Incorrect version byte"));
 		}
+
+		let method_count = usize::from(stream.read_u8().await?);
+		let mut methods = vec![0u8; method_count];
+		stream.read_exact(&mut methods).await?;
+
+		let methods = methods.into_iter().map(Method::from).collect();
+		Ok(Self { methods })
 	}
 }
 
@@ -56,6 +56,13 @@ pub enum ParseError {
 	InvalidMessage(&'static str),
 	InvalidCommand(u8),
 	InvalidRequest(&'static str),
+	Io(tokio::io::Error),
+}
+
+impl From<tokio::io::Error> for ParseError {
+	fn from(error: tokio::io::Error) -> Self {
+		Self::Io(error)
+	}
 }
 
 impl Display for ParseError {
@@ -65,6 +72,7 @@ impl Display for ParseError {
 			InvalidMessage(error) => write!(formatter, "Invalid message: {error}"),
 			InvalidCommand(number) => write!(formatter, "{number:x} is not a valid command type"),
 			InvalidRequest(error) => write!(formatter, "Invalid request: {error}"),
+			Io(error) => write!(formatter, "Io Error: {error}"),
 		}
 	}
 }
