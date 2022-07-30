@@ -4,7 +4,6 @@ use crate::message::{
 use anyhow::bail;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -23,36 +22,28 @@ pub async fn listen_for_tcp_connections(socket_address: SocketAddr) -> anyhow::R
 }
 
 async fn run_socks_protocol(mut client_stream: TcpStream) -> anyhow::Result<()> {
-	let mut buffer = [0u8; 65535];
-
-	let packet = read_packet(&mut buffer, &mut client_stream).await?;
-	let method_selection_request = MethodSelectionRequest::try_from(packet)?;
+	let method_selection_request = MethodSelectionRequest::parse_from_stream(&mut client_stream).await?;
 	println!("{method_selection_request:?}");
 	match select_method(method_selection_request.methods) {
 		Ok(response) => {
-			let response = <[u8; 2]>::from(response);
-			client_stream.write_all(&response).await?;
+			response.write_to_stream(&mut client_stream).await?;
 		}
 		Err(response) => {
-			let response = <[u8; 2]>::from(response);
-			client_stream.write_all(&response).await?;
+			response.write_to_stream(&mut client_stream).await?;
 			bail!("No acceptable method, closing connection.");
 		}
 	}
 
-	let packet = read_packet(&mut buffer, &mut client_stream).await?;
-	let socks_request = SocksRequest::try_from(packet)?;
+	let socks_request = SocksRequest::parse_from_stream(&mut client_stream).await?;
 	println!("{socks_request:?}");
 
 	let server_stream = match perform_socks_request(socks_request).await {
 		Ok((proxy_stream, response)) => {
-			let response = Vec::from(response);
-			client_stream.write_all(&response).await?;
+			response.write_to_stream(&mut client_stream).await?;
 			proxy_stream
 		}
 		Err(response) => {
-			let response = Vec::from(response);
-			client_stream.write_all(&response).await?;
+			response.write_to_stream(&mut client_stream).await?;
 			bail!("Failed to perform socks request, closing connection.");
 		}
 	};
@@ -66,16 +57,6 @@ async fn run_socks_protocol(mut client_stream: TcpStream) -> anyhow::Result<()> 
 	tokio::spawn(proxy_data(server_reader, client_writer));
 
 	Ok(())
-}
-
-async fn read_packet<'buffer>(buffer: &'buffer mut [u8], tcp_stream: &mut TcpStream) -> anyhow::Result<&'buffer [u8]> {
-	loop {
-		let length = tcp_stream.read(buffer).await?;
-		println!("Read length: {length}");
-		if length > 0 {
-			return Ok(&buffer[0..length]);
-		}
-	}
 }
 
 fn select_method(methods: Vec<Method>) -> Result<MethodSelectionResponse, MethodSelectionResponse> {
