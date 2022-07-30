@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// > The VER field is set to X'05' for this version of the protocol.
 pub const VERSION: u8 = 0x05;
@@ -45,9 +45,13 @@ pub struct MethodSelectionResponse {
 	pub method: Method,
 }
 
-impl From<MethodSelectionResponse> for [u8; 2] {
-	fn from(MethodSelectionResponse { method }: MethodSelectionResponse) -> Self {
-		[VERSION, method.into()]
+impl MethodSelectionResponse {
+	pub async fn write_to_stream<Stream>(&self, stream: &mut Stream) -> tokio::io::Result<()>
+	where
+		Stream: AsyncWrite + Unpin,
+	{
+		stream.write_all(&[VERSION, self.method.into()]).await?;
+		Ok(())
 	}
 }
 
@@ -89,7 +93,7 @@ impl Error for ParseError {}
 /// > * X'03' to X'7F' IANA ASSIGNED
 /// > * X'80' to X'FE' RESERVED FOR PRIVATE METHODS
 /// > * X'FF' NO ACCEPTABLE METHODS
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Method {
 	NoAuthenticationRequired,
 	GSSAPI,

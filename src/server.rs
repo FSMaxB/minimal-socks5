@@ -27,12 +27,10 @@ async fn run_socks_protocol(mut client_stream: TcpStream) -> anyhow::Result<()> 
 	println!("{method_selection_request:?}");
 	match select_method(method_selection_request.methods) {
 		Ok(response) => {
-			let response = <[u8; 2]>::from(response);
-			client_stream.write_all(&response).await?;
+			response.write_to_stream(&mut client_stream).await?;
 		}
 		Err(response) => {
-			let response = <[u8; 2]>::from(response);
-			client_stream.write_all(&response).await?;
+			response.write_to_stream(&mut client_stream).await?;
 			bail!("No acceptable method, closing connection.");
 		}
 	}
