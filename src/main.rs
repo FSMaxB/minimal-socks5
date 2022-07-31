@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
 #[derive(Debug, Parser)]
 struct Parameters {
 	/// IPv4 or IPv6 Address to listen on.
-	#[clap(env = "SOCKS_BIND_ADDRESS")]
+	#[clap(default_value = "127.0.0.1", env = "SOCKS_BIND_ADDRESS")]
 	address: IpAddr,
 	/// TCP port to listen on.
 	#[clap(default_value = "1080", env = "SOCKS_BIND_PORT")]
