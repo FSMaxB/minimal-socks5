@@ -96,7 +96,7 @@ impl Error for ParseError {}
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Method {
 	NoAuthenticationRequired,
-	GSSAPI,
+	GssApi,
 	UsernamePassword,
 	IanaAssigned(u8),              // TODO: Prevent invalid values
 	ReservedForPrivateMethods(u8), // TODO: Prevent invalid values
@@ -109,7 +109,7 @@ impl From<u8> for Method {
 			// X'00' NO AUTHENTICATION REQUIRED
 			0x00 => Self::NoAuthenticationRequired,
 			// X'01' GSSAPI
-			0x01 => Self::GSSAPI,
+			0x01 => Self::GssApi,
 			// X'02' USERNAME/PASSWORD
 			0x02 => Self::UsernamePassword,
 			// X'03' to X'7F' IANA ASSIGNED
@@ -129,7 +129,7 @@ impl From<Method> for u8 {
 			// X'00' NO AUTHENTICATION REQUIRED
 			NoAuthenticationRequired => 0x00,
 			// X'01' GSSAPI
-			GSSAPI => 0x01,
+			GssApi => 0x01,
 			// X'02' USERNAME/PASSWORD
 			UsernamePassword => 0x02,
 			// X'03' to X'7F' IANA ASSIGNED
@@ -153,18 +153,18 @@ impl From<Method> for u8 {
 /// > +----+-----+-------+------+----------+----------+
 /// >
 /// > Where:
-/// >  * VER	protocol version: X'05'
+/// >  * VER  protocol version: X'05'
 /// >  * CMD
 /// >    * CONNECT X'01'
 /// >    * BIND X'02'
 /// >    * UDP ASSOCIATE X'03'
-/// >  * RSV	RESERVED
-/// >  * ATYP	address type of following address
+/// >  * RSV  RESERVED
+/// >  * ATYP  address type of following address
 /// >    * IP V4 address: X'01'
 /// >    * DOMAINNAME: X'03'
 /// >    * IP V6 address: X'04'
-/// >  * DST.ADDR	desired destination address
-/// >  * DST.PORT	desired destination port in network octet order
+/// >  * DST.ADDR  desired destination address
+/// >  * DST.PORT  desired destination port in network octet order
 #[derive(Debug)]
 pub struct SocksRequest {
 	pub command: Command,
@@ -220,8 +220,8 @@ pub enum Command {
 /// >  +----+-----+-------+------+----------+----------+
 ///
 /// > Where:
-/// > * VER	protocol version: X'05'
-/// > * REP	Reply field:
+/// > * VER  protocol version: X'05'
+/// > * REP  Reply field:
 /// >   * X'00' succeeded
 /// >   * X'01' general SOCKS server failure
 /// >   * X'02' connection not allowed by ruleset
@@ -232,8 +232,8 @@ pub enum Command {
 /// >   * X'07' Command not supported
 /// >   * X'08' Address type not supported
 /// >   * X'09' to X'FF' unassigned
-/// > * RSV	RESERVED
-/// > * ATYP	address type of following address
+/// > * RSV  RESERVED
+/// > * ATYP  address type of following address
 pub struct SocksResponse {
 	pub reply: SocksReply,
 	pub address: Address,
@@ -254,7 +254,7 @@ impl SocksResponse {
 	}
 }
 
-/// > * REP	Reply field:
+/// > * REP  Reply field:
 /// >   * X'00' succeeded
 /// >   * X'01' general SOCKS server failure
 /// >   * X'02' connection not allowed by ruleset
@@ -324,11 +324,11 @@ impl TryFrom<u8> for Command {
 	}
 }
 
-/// > * ATYP	address type of following address
+/// > * ATYP  address type of following address
 /// >   * IP V4 address: X'01'
 /// >   * DOMAINNAME: X'03'
 /// >   * IP V6 address: X'04'
-/// > * DST.ADDR	desired destination address
+/// > * DST.ADDR  desired destination address
 #[derive(Debug)]
 pub enum Address {
 	Ipv4(Ipv4Addr),
@@ -379,7 +379,7 @@ impl Address {
 				let length = u8::try_from(domain.len())
 					.unwrap_or_else(|_| unreachable!("Domain name cannot be longer than 255 bytes"));
 				stream.write_u8(length).await?;
-				stream.write_all(&domain).await
+				stream.write_all(domain).await
 			}
 			Ipv6(ipv6) => stream.write_all(&ipv6.octets()).await,
 		}
