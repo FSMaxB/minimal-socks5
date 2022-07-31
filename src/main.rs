@@ -7,15 +7,12 @@ use std::net::{IpAddr, ToSocketAddrs};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
-	let Parameters {
-		socks_address,
-		socks_port,
-	} = Parameters::parse();
+	let Parameters { address, port } = Parameters::parse();
 
-	let socket_address = (socks_address, socks_port)
+	let socket_address = (address, port)
 		.to_socket_addrs()?
 		.next()
-		.with_context(|| format!("Invalid Ip/port: {socks_address}:{socks_port}"))?;
+		.with_context(|| format!("Invalid Ip/port: {address}:{port}"))?;
 	listen_for_tcp_connections(socket_address).await?;
 
 	Ok(())
@@ -23,10 +20,12 @@ async fn main() -> anyhow::Result<()> {
 
 #[derive(Debug, Parser)]
 struct Parameters {
-	#[clap(long)]
-	socks_address: IpAddr,
-	#[clap(long, default_value = "1080")]
-	socks_port: u16,
+	/// IPv4 or IPv6 Address to listen on.
+	#[clap(env = "SOCKS_BIND_ADDRESS")]
+	address: IpAddr,
+	/// TCP port to listen on.
+	#[clap(default_value = "1080", env = "SOCKS_BIND_PORT")]
+	port: u16,
 }
 
 mod message;
