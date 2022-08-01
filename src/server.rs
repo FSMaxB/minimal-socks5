@@ -6,16 +6,17 @@ use std::io::ErrorKind;
 use std::net::SocketAddr;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
+use tracing::{debug, error, info};
 
 pub async fn listen_for_tcp_connections(socket_address: SocketAddr) -> anyhow::Result<()> {
 	let listener = TcpListener::bind(socket_address).await?;
-	println!("Listening on {socket_address}");
+	info!(address = %socket_address, "Listening for connections");
 	loop {
-		let (_tcp_stream, client_address) = listener.accept().await?;
-		println!("New connection from: {client_address}");
+		let (tcp_stream, client_address) = listener.accept().await?;
+		info!(address = %client_address, "New connection");
 		tokio::spawn(async move {
-			if let Err(error) = run_socks_protocol(_tcp_stream).await {
-				println!("Proxy task encountered error: {error}");
+			if let Err(error) = run_socks_protocol(tcp_stream).await {
+				error!(address = %client_address, "Proxy task encountered error: {error}");
 			}
 		});
 	}
@@ -23,7 +24,7 @@ pub async fn listen_for_tcp_connections(socket_address: SocketAddr) -> anyhow::R
 
 async fn run_socks_protocol(mut client_stream: TcpStream) -> anyhow::Result<()> {
 	let method_selection_request = MethodSelectionRequest::parse_from_stream(&mut client_stream).await?;
-	println!("{method_selection_request:?}");
+	debug!("{method_selection_request:?}");
 	match select_method(method_selection_request.methods) {
 		Ok(response) => {
 			response.write_to_stream(&mut client_stream).await?;
@@ -35,7 +36,7 @@ async fn run_socks_protocol(mut client_stream: TcpStream) -> anyhow::Result<()> 
 	}
 
 	let socks_request = SocksRequest::parse_from_stream(&mut client_stream).await?;
-	println!("{socks_request:?}");
+	debug!("{socks_request:?}");
 
 	let server_stream = match perform_socks_request(socks_request).await {
 		Ok((proxy_stream, response)) => {
@@ -48,7 +49,7 @@ async fn run_socks_protocol(mut client_stream: TcpStream) -> anyhow::Result<()> 
 		}
 	};
 
-	println!("Upstream connection established");
+	info!("Upstream connection established");
 	let (client_reader, client_writer) = client_stream.into_split();
 	let (server_reader, server_writer) = server_stream.into_split();
 
@@ -103,8 +104,7 @@ async fn perform_socks_request(
 	let bind_address = match proxy_stream.local_addr() {
 		Ok(address) => address,
 		Err(error) => {
-			println!("Error getting local address: {error}");
-			// TODO: What port/address to use in error response
+			error!("Error getting local address: {error}");
 			return Err(SocksResponse {
 				reply: SocksReply::GeneralSocksServerFailure,
 				address,
@@ -139,14 +139,15 @@ async fn lookup_host(address: &Address, port: u16) -> Result<Vec<SocketAddr>, So
 		Ipv6(ipv6) => tokio::net::lookup_host((*ipv6, port)).await.map(Iterator::collect),
 	}
 	.map_err(|error| {
-		println!("Error looking up host for {address:?}:{port}: {error}");
+		let address = format!("{address:?}:{port}");
+		error!(%address, "Error looking up host: {error}");
 		SocksReply::GeneralSocksServerFailure
 	})
 }
 
 async fn proxy_data(mut reader: OwnedReadHalf, mut writer: OwnedWriteHalf) {
 	match tokio::io::copy(&mut reader, &mut writer).await {
-		Ok(bytes) => println!("Finished proxying {bytes} bytes"),
-		Err(error) => println!("Error proxying: {error}"),
+		Ok(bytes) => info!(bytes, "Finished proxying"),
+		Err(error) => error!("Error proxying: {error}"),
 	}
 }

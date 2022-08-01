@@ -5,10 +5,21 @@ use anyhow::Context;
 use clap::Parser;
 use std::net::{IpAddr, ToSocketAddrs};
 use tokio::sync::oneshot;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
-	let Parameters { address, port } = Parameters::parse();
+	let Parameters {
+		address,
+		port,
+		log_filter,
+	} = Parameters::parse();
+
+	tracing_subscriber::fmt()
+		.with_ansi(atty::is(atty::Stream::Stdout))
+		.with_env_filter(EnvFilter::new(log_filter))
+		.init();
 
 	let (shutdown_sender, shutdown_receiver) = oneshot::channel();
 	ctrlc::set_handler({
@@ -28,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
 			result?;
 		}
 		_ = shutdown_receiver => {
-			println!("Received ctrl-c, shutting down")
+			info!("Received ctrl-c, shutting down")
 		}
 	};
 
@@ -43,6 +54,8 @@ struct Parameters {
 	/// TCP port to listen on.
 	#[clap(default_value = "1080", env = "SOCKS_BIND_PORT")]
 	port: u16,
+	#[clap(long, default_value = "info", env = "LOG_FILTER")]
+	log_filter: String,
 }
 
 mod message;
