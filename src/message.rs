@@ -395,6 +395,20 @@ impl Address {
 	}
 }
 
+impl Display for Address {
+	fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+		use Address::*;
+		match self {
+			Ipv4(ipv4) => ipv4.fmt(formatter),
+			DomainName(bytes) => match std::str::from_utf8(bytes) {
+				Ok(domain) => formatter.write_str(domain),
+				Err(_) => formatter.write_str(&String::from_utf8_lossy(bytes)),
+			},
+			Ipv6(ipv6) => ipv6.fmt(formatter),
+		}
+	}
+}
+
 impl From<IpAddr> for Address {
 	fn from(address: IpAddr) -> Self {
 		match address {

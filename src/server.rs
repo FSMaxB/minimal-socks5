@@ -10,13 +10,13 @@ use tracing::{debug, error, info};
 
 pub async fn listen_for_tcp_connections(socket_address: SocketAddr) -> anyhow::Result<()> {
 	let listener = TcpListener::bind(socket_address).await?;
-	info!(address = %socket_address, "Listening for connections");
+	info!(address = %socket_address.ip(), port = socket_address.port(), "Listening for connections");
 	loop {
 		let (tcp_stream, client_address) = listener.accept().await?;
-		info!(address = %client_address, "New connection");
+		info!(address = %client_address.ip(), port = client_address.port(), "New connection");
 		tokio::spawn(async move {
 			if let Err(error) = run_socks_protocol(tcp_stream).await {
-				error!(address = %client_address, "Proxy task encountered error: {error}");
+				error!(address = %client_address.ip(), port = client_address.port(), "Proxy task encountered error: {error}");
 			}
 		});
 	}
@@ -49,7 +49,6 @@ async fn run_socks_protocol(mut client_stream: TcpStream) -> anyhow::Result<()> 
 		}
 	};
 
-	info!("Upstream connection established");
 	let (client_reader, client_writer) = client_stream.into_split();
 	let (server_reader, server_writer) = server_stream.into_split();
 
@@ -88,7 +87,10 @@ async fn perform_socks_request(
 		Err(reply) => return Err(SocksResponse { reply, address, port }),
 	};
 	let proxy_stream = match TcpStream::connect(socket_addresses.as_slice()).await {
-		Ok(stream) => stream,
+		Ok(stream) => {
+			info!(%address, port, "Upstream connection established");
+			stream
+		}
 		Err(error) => {
 			use ErrorKind::*;
 			let reply = match error.kind() {
@@ -139,15 +141,14 @@ async fn lookup_host(address: &Address, port: u16) -> Result<Vec<SocketAddr>, So
 		Ipv6(ipv6) => tokio::net::lookup_host((*ipv6, port)).await.map(Iterator::collect),
 	}
 	.map_err(|error| {
-		let address = format!("{address:?}:{port}");
-		error!(%address, "Error looking up host: {error}");
+		error!(%address, port, "Error looking up host: {error}");
 		SocksReply::GeneralSocksServerFailure
 	})
 }
 
 async fn proxy_data(mut reader: OwnedReadHalf, mut writer: OwnedWriteHalf) {
 	match tokio::io::copy(&mut reader, &mut writer).await {
-		Ok(bytes) => info!(bytes, "Finished proxying"),
+		Ok(bytes) => debug!(bytes, "Finished proxying"),
 		Err(error) => error!("Error proxying: {error}"),
 	}
 }
