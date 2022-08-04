@@ -4,21 +4,18 @@ use crate::server::listen_for_tcp_connections;
 use anyhow::Context;
 use clap::Parser;
 use std::net::{IpAddr, ToSocketAddrs};
+use std::time::Duration;
 use tokio::sync::oneshot;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
-	let Parameters {
-		address,
-		port,
-		log_filter,
-	} = Parameters::parse();
+	let parameters = Parameters::parse();
 
 	tracing_subscriber::fmt()
 		.with_ansi(atty::is(atty::Stream::Stdout))
-		.with_env_filter(EnvFilter::new(log_filter))
+		.with_env_filter(EnvFilter::new(&parameters.log_filter))
 		.init();
 
 	let (shutdown_sender, shutdown_receiver) = oneshot::channel();
@@ -30,12 +27,14 @@ async fn main() -> anyhow::Result<()> {
 	})
 	.context("Failed to register Ctrl-C handler")?;
 
+	let address = parameters.address;
+	let port = parameters.port;
 	let socket_address = (address, port)
 		.to_socket_addrs()?
 		.next()
 		.with_context(|| format!("Invalid Ip/port: {address}:{port}"))?;
 	tokio::select! {
-		result = listen_for_tcp_connections(socket_address) => {
+		result = listen_for_tcp_connections(socket_address, parameters.connect_timeout()) => {
 			result?;
 		}
 		_ = shutdown_receiver => {
@@ -56,6 +55,14 @@ struct Parameters {
 	port: u16,
 	#[clap(long, default_value = "info", env = "LOG_FILTER")]
 	log_filter: String,
+	#[clap(long, default_value = "10", env = "SOCKS_CONNECT_TIMEOUT_SECONDS")]
+	connect_timeout_seconds: u64,
+}
+
+impl Parameters {
+	fn connect_timeout(&self) -> Duration {
+		Duration::from_secs(self.connect_timeout_seconds)
+	}
 }
 
 mod message;

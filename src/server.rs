@@ -1,62 +1,64 @@
 use crate::message::{
 	Address, Command, Method, MethodSelectionRequest, MethodSelectionResponse, SocksReply, SocksRequest, SocksResponse,
 };
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use std::io::ErrorKind;
 use std::net::SocketAddr;
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::time::error::Elapsed;
 use tracing::{debug, error, info};
 
-pub async fn listen_for_tcp_connections(socket_address: SocketAddr) -> anyhow::Result<()> {
+pub async fn listen_for_tcp_connections(socket_address: SocketAddr, connect_timeout: Duration) -> anyhow::Result<()> {
 	let listener = TcpListener::bind(socket_address).await?;
 	info!(address = %socket_address.ip(), port = socket_address.port(), "Listening for connections");
 	loop {
 		let (tcp_stream, client_address) = listener.accept().await?;
 		info!(address = %client_address.ip(), port = client_address.port(), "New connection");
 		tokio::spawn(async move {
-			if let Err(error) = run_socks_protocol(tcp_stream).await {
+			if let Err(error) = run_socks_protocol(tcp_stream, connect_timeout).await {
 				error!(address = %client_address.ip(), port = client_address.port(), "Proxy task encountered error: {error}");
 			}
 		});
 	}
 }
 
-async fn run_socks_protocol(mut client_stream: TcpStream) -> anyhow::Result<()> {
-	let method_selection_request = MethodSelectionRequest::parse_from_stream(&mut client_stream).await?;
+async fn run_socks_protocol(mut client_stream: TcpStream, connect_timeout: Duration) -> anyhow::Result<()> {
+	let server_stream = tokio::time::timeout(connect_timeout, handshake_and_connect(&mut client_stream))
+		.await
+		.map_err(|_: Elapsed| anyhow!("Handshake and connection timed out"))??;
+
+	tokio::spawn(proxy_data(client_stream, server_stream));
+
+	Ok(())
+}
+
+async fn handshake_and_connect(client_stream: &mut TcpStream) -> anyhow::Result<TcpStream> {
+	let method_selection_request = MethodSelectionRequest::parse_from_stream(client_stream).await?;
 	debug!("{method_selection_request:?}");
 	match select_method(method_selection_request.methods) {
 		Ok(response) => {
-			response.write_to_stream(&mut client_stream).await?;
+			response.write_to_stream(client_stream).await?;
 		}
 		Err(response) => {
-			response.write_to_stream(&mut client_stream).await?;
+			response.write_to_stream(client_stream).await?;
 			bail!("No acceptable method, closing connection.");
 		}
 	}
 
-	let socks_request = SocksRequest::parse_from_stream(&mut client_stream).await?;
+	let socks_request = SocksRequest::parse_from_stream(client_stream).await?;
 	debug!("{socks_request:?}");
 
-	let server_stream = match perform_socks_request(socks_request).await {
+	Ok(match perform_socks_request(socks_request).await {
 		Ok((proxy_stream, response)) => {
-			response.write_to_stream(&mut client_stream).await?;
+			response.write_to_stream(client_stream).await?;
 			proxy_stream
 		}
 		Err(response) => {
-			response.write_to_stream(&mut client_stream).await?;
+			response.write_to_stream(client_stream).await?;
 			bail!("Failed to perform socks request, closing connection.");
 		}
-	};
-
-	let (client_reader, client_writer) = client_stream.into_split();
-	let (server_reader, server_writer) = server_stream.into_split();
-
-	// TODO: Find out if this leaks tasks/connections
-	tokio::spawn(proxy_data(client_reader, server_writer));
-	tokio::spawn(proxy_data(server_reader, client_writer));
-
-	Ok(())
+	})
 }
 
 fn select_method(methods: Vec<Method>) -> Result<MethodSelectionResponse, MethodSelectionResponse> {
@@ -146,9 +148,10 @@ async fn lookup_host(address: &Address, port: u16) -> Result<Vec<SocketAddr>, So
 	})
 }
 
-async fn proxy_data(mut reader: OwnedReadHalf, mut writer: OwnedWriteHalf) {
-	match tokio::io::copy(&mut reader, &mut writer).await {
-		Ok(bytes) => debug!(bytes, "Finished proxying"),
+async fn proxy_data(mut client_stream: TcpStream, mut server_stream: TcpStream) {
+	match tokio::io::copy_bidirectional(&mut client_stream, &mut server_stream).await {
+		Ok((request_bytes, response_bytes)) => info!(request_bytes, response_bytes, "Finished proxying"),
+		// FIXME: For some reason this always reports an error, even though the proxying works!
 		Err(error) => error!("Error proxying: {error}"),
 	}
 }
