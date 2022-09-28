@@ -48,14 +48,14 @@ async fn main() -> anyhow::Result<()> {
 #[derive(Debug, Parser)]
 struct Parameters {
 	/// IPv4 or IPv6 Address to listen on.
-	#[clap(default_value = "127.0.0.1", env = "SOCKS_BIND_ADDRESS")]
+	#[arg(default_value = "127.0.0.1", env = "SOCKS_BIND_ADDRESS")]
 	address: IpAddr,
 	/// TCP port to listen on.
-	#[clap(default_value = "1080", env = "SOCKS_BIND_PORT")]
+	#[arg(default_value = "1080", env = "SOCKS_BIND_PORT")]
 	port: u16,
-	#[clap(long, default_value = "info", env = "LOG_FILTER")]
+	#[arg(long, default_value = "info", env = "LOG_FILTER")]
 	log_filter: String,
-	#[clap(long, default_value = "10", env = "SOCKS_CONNECT_TIMEOUT_SECONDS")]
+	#[arg(long, default_value = "10", env = "SOCKS_CONNECT_TIMEOUT_SECONDS")]
 	connect_timeout_seconds: u64,
 }
 
