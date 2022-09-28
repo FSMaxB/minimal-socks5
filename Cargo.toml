@@ -9,7 +9,7 @@ license = "ISC"
 [dependencies]
 anyhow = "1"
 atty = "0.2"
-clap = {version = "3", features = ["derive", "env"]}
+clap = {version = "4", features = ["derive", "env"]}
 ctrlc = "3"
 tokio = {version = "1", features = ["rt", "io-util", "net", "time", "macros", "sync", "parking_lot"]}
 tracing = "0.1"
