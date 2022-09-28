@@ -1,5 +1,5 @@
 FROM rust:alpine as builder
-RUN apk update && apk add libc-dev
+RUN apk add --no-cache libc-dev
 WORKDIR /usr/src/minimal-socks5
 COPY . .
 RUN cargo install --path .
