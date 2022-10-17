@@ -28,7 +28,7 @@ async fn run_socks_protocol(mut client_stream: TcpStream, connect_timeout: Durat
 		.await
 		.map_err(|_: Elapsed| anyhow!("Handshake and connection timed out"))??;
 
-	tokio::spawn(proxy_data(client_stream, server_stream));
+	proxy_data(client_stream, server_stream).await;
 
 	Ok(())
 }
