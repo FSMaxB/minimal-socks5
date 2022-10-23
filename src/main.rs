@@ -1,11 +1,12 @@
 //! https://datatracker.ietf.org/doc/html/rfc1928
 
 use crate::server::listen_for_tcp_connections;
-use anyhow::Context;
+use anyhow::{bail, Context};
 use clap::Parser;
-use std::net::{IpAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::sync::oneshot;
+use tokio::task::JoinSet;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -27,18 +28,21 @@ async fn main() -> anyhow::Result<()> {
 	})
 	.context("Failed to register Ctrl-C handler")?;
 
-	let address = parameters.address;
-	let port = parameters.port;
-	let socket_address = (address, port)
-		.to_socket_addrs()?
-		.next()
-		.with_context(|| format!("Invalid Ip/port: {address}:{port}"))?;
+	let mut join_set = JoinSet::new();
+	for listen_address in parameters.listen_addresses.iter().copied() {
+		join_set.spawn(listen_for_tcp_connections(listen_address, parameters.connect_timeout()));
+	}
+
 	tokio::select! {
-		result = listen_for_tcp_connections(socket_address, parameters.connect_timeout()) => {
-			result?;
+		option = join_set.join_next() => {
+			match option {
+				Some(result) => result??,
+				None => bail!("No listen adddress specified."),
+			};
 		}
 		_ = shutdown_receiver => {
-			info!("Received ctrl-c, shutting down")
+			info!("Received ctrl-c, shutting down");
+			join_set.shutdown().await;
 		}
 	};
 
@@ -48,11 +52,12 @@ async fn main() -> anyhow::Result<()> {
 #[derive(Debug, Parser)]
 struct Parameters {
 	/// IPv4 or IPv6 Address to listen on.
-	#[arg(default_value = "127.0.0.1", env = "SOCKS_BIND_ADDRESS")]
-	address: IpAddr,
-	/// TCP port to listen on.
-	#[arg(default_value = "1080", env = "SOCKS_BIND_PORT")]
-	port: u16,
+	#[arg(
+		default_value = "127.0.0.1:1080",
+		env = "SOCKS_BIND_ADDRESSES",
+		value_delimiter = ','
+	)]
+	listen_addresses: Vec<SocketAddr>,
 	#[arg(long, default_value = "info", env = "LOG_FILTER")]
 	log_filter: String,
 	#[arg(long, default_value = "10", env = "SOCKS_CONNECT_TIMEOUT_SECONDS")]
