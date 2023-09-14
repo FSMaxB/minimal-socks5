@@ -1,7 +1,7 @@
 [package]
 name = "minimal-socks5"
 description = "Minimal implementation of a subset of SOCKS5 written for my personal use."
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "ISC"
 readme = "README.md"
