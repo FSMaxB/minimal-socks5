@@ -3,6 +3,7 @@
 use crate::server::listen_for_tcp_connections;
 use anyhow::{bail, Context};
 use clap::Parser;
+use std::io::{stdout, IsTerminal};
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::sync::oneshot;
@@ -15,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
 	let parameters = Parameters::parse();
 
 	tracing_subscriber::fmt()
-		.with_ansi(atty::is(atty::Stream::Stdout))
+		.with_ansi(stdout().is_terminal())
 		.with_env_filter(EnvFilter::new(&parameters.log_filter))
 		.init();
 
