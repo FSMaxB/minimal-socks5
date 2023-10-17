@@ -33,6 +33,10 @@ impl MethodSelectionRequest {
 		}
 
 		let method_count = usize::from(stream.read_u8().await?);
+		if method_count < 1 {
+			return Err(ParseError::NoMethodsSpecified);
+		}
+
 		let mut methods = vec![0u8; method_count];
 		stream.read_exact(&mut methods).await?;
 
@@ -61,6 +65,7 @@ pub enum ParseError {
 	MissingReserved,
 	InvalidCommand(u8),
 	InvalidAddressType(u8),
+	NoMethodsSpecified,
 	Io(tokio::io::Error),
 }
 
@@ -78,6 +83,7 @@ impl Display for ParseError {
 			MissingReserved => write!(formatter, "Missing reserved byte"),
 			InvalidCommand(number) => write!(formatter, "{number:x} is not a valid command type"),
 			InvalidAddressType(number) => write!(formatter, "Invalid address type: {number:x}"),
+			NoMethodsSpecified => write!(formatter, "No method specified in method selection request"),
 			Io(error) => write!(formatter, "Io Error: {error}"),
 		}
 	}
