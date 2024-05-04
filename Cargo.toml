@@ -11,7 +11,7 @@ rust-version = "1.72"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1"
+anyhow = "1.0.82"
 clap = {version = "4", features = ["derive", "env"]}
 ctrlc = "3"
 tokio = {version = "1", features = ["rt", "io-util", "net", "time", "macros", "sync", "parking_lot"]}
