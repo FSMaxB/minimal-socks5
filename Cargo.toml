@@ -15,5 +15,5 @@ anyhow = "1"
 clap = {version = "4", features = ["derive", "env"]}
 ctrlc = "3"
 tokio = {version = "1", features = ["rt", "io-util", "net", "time", "macros", "sync", "parking_lot"]}
-tracing = "0.1"
-tracing-subscriber = {version = "0.3", features = ["parking_lot", "env-filter"]}
+tracing = "0.1.40"
+tracing-subscriber = {version = "0.3.18", features = ["parking_lot", "env-filter"]}
