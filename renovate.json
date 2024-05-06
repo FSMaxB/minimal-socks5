@@ -6,5 +6,7 @@
 	"lockFileMaintenance": {
 		"enabled": true
 	},
-	"schedule": ["every weekend"]
+	"schedule": ["every weekend"],
+	"rangeStrategy": "replace"
 }
+
